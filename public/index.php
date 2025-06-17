@@ -3,31 +3,36 @@ require_once '../private/auth.php';
 require_login();
 require_once '../private/db.php';
 
-// Use named parameter for tag filtering and sanitize the input when reading it.
-$where = "";
+// Sanitize and retrieve input values
+$tagInput  = filter_input(INPUT_GET, 'tag', FILTER_SANITIZE_STRING) ?: '';
+$sortInput = $_GET['sort'] ?? '';
+$page      = filter_input(INPUT_GET, 'page', FILTER_VALIDATE_INT) ?: 1;
+$per_page  = 5;
+$offset    = ($page - 1) * $per_page;
+
+// Whitelist acceptable sort values
+$valid_sorts = ['uploaded_at', 'title'];
+$sort = in_array($sortInput, $valid_sorts) ? $sortInput : 'uploaded_at';
+
+$where  = "";
 $params = [];
-$tagInput = filter_input(INPUT_GET, 'tag', FILTER_SANITIZE_STRING);
+
+// If a tag is provided, adjust the WHERE clause and parameter array
 if (!empty($tagInput)) {
-  $where = "JOIN image_tags it ON i.id = it.image_id JOIN tags t ON it.tag_id = t.id WHERE t.name = :tag";
+  $where = "JOIN image_tags it ON i.id = it.image_id
+  JOIN tags t ON it.tag_id = t.id
+  WHERE t.name = :tag";
   $params['tag'] = $tagInput;
 }
 
-// Secure sorting by whitelisting valid values.
-$valid_sorts = ['uploaded_at', 'title'];
-$sortInput = $_GET['sort'] ?? '';
-$sort = in_array($sortInput, $valid_sorts) ? $sortInput : 'uploaded_at';
+// Secure count query using named parameters
+$countQuery = "SELECT COUNT(*) FROM images i $where";
+$totalStmt  = $pdo->prepare($countQuery);
+$totalStmt->execute($params);
+$count = $totalStmt->fetchColumn();
 
-// Validate pagination
-$page = filter_input(INPUT_GET, 'page', FILTER_VALIDATE_INT) ?: 1;
-$per_page = 5;
-$offset = ($page - 1) * $per_page;
-
-// Secure count query.
-$total = $pdo->prepare("SELECT COUNT(*) FROM images i $where");
-$total->execute($params);
-$count = $total->fetchColumn();
-
-// Secure image query (using only named parameters).
+// Secure image query (using only named parameters)
+// The $sort variable is safe at this point because it has been whitelisted
 $query = "SELECT i.* FROM images i ";
 if ($where) {
   $query .= $where;
@@ -35,6 +40,8 @@ if ($where) {
 $query .= " ORDER BY i.$sort DESC LIMIT :limit OFFSET :offset";
 
 $stmt = $pdo->prepare($query);
+
+// Bind all parameters from $params
 foreach ($params as $key => $value) {
   $stmt->bindValue(":$key", $value, PDO::PARAM_STR);
 }
