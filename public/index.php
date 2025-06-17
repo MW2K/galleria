@@ -1,3 +1,5 @@
+// © Peter Greenwell. Released under the MIT license. 
+
 <?php
 require_once '../private/auth.php';
 require_login();
